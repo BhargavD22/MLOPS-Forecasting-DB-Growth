@@ -53,7 +53,7 @@ st.write(f"### Overall Total DB Size Across All Servers: **{total_size:.2f} GB**
 # -------------------------------
 st.title("📈 Database Growth Forecasting")
 
-months_to_forecast = st.number_input("Months to Forecast", min_value=1, max_value=48, value=6)
+months_to_forecast = st.number_input("Months to Forecast", min_value=1, max_value=48, value=12)
 chart_type = st.selectbox("Chart Type", ["Line Chart", "Bar Chart"])
 
 server_list = ["All Servers"] + sorted(df["Server"].unique())
@@ -66,44 +66,59 @@ else:
 selected_database = st.selectbox("Select Database", db_list)
 
 # -------------------------------
-# Forecast Function
+# Forecast Function (with confidence intervals)
 # -------------------------------
-def forecast_arima(ts, periods):
+def forecast_arima_with_confidence(ts, periods):
     model = ARIMA(ts, order=(1, 1, 1))
     model_fit = model.fit()
-    forecast = model_fit.forecast(steps=periods)
+    forecast_result = model_fit.get_forecast(steps=periods)
+    forecast_mean = forecast_result.predicted_mean
+    conf_int = forecast_result.conf_int()
+
     future_dates = pd.date_range(ts.index[-1] + timedelta(days=1), periods=periods, freq="MS")
-    return pd.DataFrame({"Date": future_dates, "Forecast_GB": forecast})
+
+    return pd.DataFrame({
+        "Date": future_dates,
+        "Forecast_GB": forecast_mean.values,
+        "Lower_Bound": conf_int.iloc[:, 0].values,
+        "Upper_Bound": conf_int.iloc[:, 1].values
+    })
 
 # -------------------------------
-# Generate Forecast
+# Forecast Trigger
 # -------------------------------
 if st.button("Generate Forecast"):
     if selected_server == "All Servers" and selected_database == "All Databases":
         ts = df.resample("MS", on="Date")["DB_Size_GB"].sum().asfreq("MS").fillna(method="ffill")
-        forecast_df = forecast_arima(ts, months_to_forecast)
+        forecast_df = forecast_arima_with_confidence(ts, months_to_forecast)
         title = "All Servers - All Databases"
 
     elif selected_server != "All Servers" and selected_database == "All Databases":
         filtered = df[df["Server"] == selected_server]
         ts = filtered.resample("MS", on="Date")["DB_Size_GB"].sum().asfreq("MS").fillna(method="ffill")
-        forecast_df = forecast_arima(ts, months_to_forecast)
+        forecast_df = forecast_arima_with_confidence(ts, months_to_forecast)
         title = f"{selected_server} - All Databases"
 
     else:
         filtered = df[(df["Server"] == selected_server) & (df["Database"] == selected_database)]
         ts = filtered.resample("MS", on="Date")["DB_Size_GB"].last().asfreq("MS").fillna(method="ffill")
-        forecast_df = forecast_arima(ts, months_to_forecast)
+        forecast_df = forecast_arima_with_confidence(ts, months_to_forecast)
         title = f"{selected_server} - {selected_database}"
 
+    # -------------------------------
     # Plotting
+    # -------------------------------
     fig, ax = plt.subplots(figsize=(12, 6))
-    if chart_type == "Line Chart":
-        ax.plot(ts.index, ts.values, label="Historical", color="blue")
-        ax.plot(forecast_df["Date"], forecast_df["Forecast_GB"], label="Forecast", color="red", linestyle="--")
-    else:
-        ax.bar(ts.index, ts.values, label="Historical", color="blue", alpha=0.6)
-        ax.bar(forecast_df["Date"], forecast_df["Forecast_GB"], label="Forecast", color="red", alpha=0.8)
+
+    # Plot historical
+    ax.plot(ts.index, ts.values, label="Historical", color="blue")
+
+    # Forecast line
+    ax.plot(forecast_df["Date"], forecast_df["Forecast_GB"], label="Forecast", color="red", linestyle="--")
+
+    # Confidence interval
+    ax.fill_between(forecast_df["Date"], forecast_df["Lower_Bound"], forecast_df["Upper_Bound"],
+                    color='red', alpha=0.2, label="Confidence Interval")
 
     ax.set_title(f"Forecast: {title}")
     ax.set_xlabel("Date")
@@ -112,7 +127,6 @@ if st.button("Generate Forecast"):
     plt.xticks(rotation=45)
     st.pyplot(fig)
 
-    # Table
-    st.write("📅 **Forecasted Values Table**")
+    # Forecast table
+    st.write("📅 **Forecast Table with Confidence Intervals**")
     st.dataframe(forecast_df)
-
