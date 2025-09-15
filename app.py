@@ -25,7 +25,7 @@ df = load_data()
 # Summary Section
 st.title("📊 Current Database Usage Summary")
 
-latest = df.groupby('Server')['Date'].max().reset_index()
+latest = df.groupby('server')['Date'].max().reset_index()
 latest_data = pd.merge(df, latest, on=['Server', 'Date'], how='inner')
 server_sizes = latest_data.groupby('Server')['DB_Size_GB'].sum().reset_index()
 total_size = server_sizes['DB_Size_GB'].sum()
@@ -107,3 +107,4 @@ if st.button("🔮 Generate Forecast"):
     # Forecast Table
     st.subheader("📅 Forecast Table")
     st.dataframe(forecast_df)
+
